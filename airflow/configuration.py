@@ -37,6 +37,7 @@ defaults = {
     },
     'celery': {
         'default_queue': 'default',
+        'flower_port': '5555'
     },
     'smtp': {
         'smtp_starttls': True,
@@ -138,7 +139,7 @@ celery_result_backend = db+mysql://airflow:airflow@localhost:3306/airflow
 
 # Celery Flower is a sweet UI for Celery. Airflow has a shortcut to start
 # it `airflow flower`. This defines the port that Celery Flower runs on
-flower_port = 8383
+flower_port = 5555
 
 # Default queue that tasks get assigned to and that worker listen on.
 default_queue = default
@@ -209,15 +210,25 @@ class ConfigParserWithDefaults(ConfigParser):
         section = str(section).lower()
         key = str(key).lower()
         d = self.defaults
-        try:
+
+        # environment variables get precedence
+        # must have format AIRFLOW__{SESTION}__{KEY} (note double underscore)
+        env_var = 'AIRFLOW__{S}__{K}'.format(S=section.upper(), K=key.upper())
+        if env_var in os.environ:
+            return os.environ[env_var]
+
+        # ...then the config file
+        elif self.has_option(section, key):
             return ConfigParser.get(self, section, key)
-        except:
-            if section not in d or key not in d[section]:
-                raise AirflowConfigException(
-                    "section/key [{section}/{key}] not found "
-                    "in config".format(**locals()))
-            else:
-                return d[section][key]
+
+        # ...then the defaults
+        elif section in d and key in d[section]:
+            return d[section][key]
+
+        else:
+            raise AirflowConfigException(
+                "section/key [{section}/{key}] not found "
+                "in config".format(**locals()))
 
     def getboolean(self, section, key):
         val = str(self.get(section, key)).lower().strip()
